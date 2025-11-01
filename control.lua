@@ -24,29 +24,6 @@ local function get_freeze_rate()
   return 20
 end
 
--- Wagon power detection (kept from earlier implementation)
-local function wagon_is_powered(wagon)
-  if not (wagon and wagon.valid) then return false end
-
-  -- Prefer electric-trains remote if present (guarded)
-  if remote and remote.interfaces and remote.interfaces["electric-trains"] and remote.interfaces["electric-trains"].is_wagon_charged then
-    local ok, result = pcall(function() return remote.call("electric-trains", "is_wagon_charged", wagon) end)
-    if ok and result ~= nil then
-      return result
-    end
-  end
-
-  -- Check common energy properties
-  if wagon.energy and type(wagon.energy) == "number" then
-    return wagon.energy > 0
-  end
-  if wagon.electric_buffer_size and wagon.energy then
-    return wagon.energy > 0
-  end
-
-  return false
-end
-
 -- Initialize custom storages (keeps list of wagons we care about)
 local function init_storages()
   global = global or {}
@@ -65,14 +42,14 @@ local function unregister_wagon(entity)
   global[STORAGE_KEY][entity.unit_number] = nil
 end
 
--- Extend spoil ticks for items in wagons (but only if wagon is powered)
+-- Extend spoil ticks for items in wagons (Fridge preserves items without checking power)
 local function check_wagons(recover_number)
   if not recover_number or recover_number <= 0 then return end
   for unit_number, wagon in pairs(global[STORAGE_KEY]) do
     if wagon and wagon.valid then
       -- Only apply preservation if the wagon supports cargo inventory
       local inv = wagon.get_inventory and wagon.get_inventory(defines.inventory.cargo_wagon) or nil
-      if inv and wagon_is_powered(wagon) then
+      if inv then
         for i = 1, #inv do
           local itemStack = inv[i]
           if itemStack and itemStack.valid_for_read and itemStack.spoil_tick and itemStack.spoil_tick > 0 then
