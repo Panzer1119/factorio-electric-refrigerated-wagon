@@ -24,6 +24,14 @@ local function get_freeze_rate()
   return 20
 end
 
+-- Cached freeze-rate: read only on init/config change or when runtime setting changes
+local cached_freeze_rate = nil
+local function update_cached_freeze_rate()
+  cached_freeze_rate = get_freeze_rate()
+  -- optional debug log
+  -- log("[electric-refrigerated-wagon] cached_freeze_rate = " .. tostring(cached_freeze_rate))
+end
+
 -- Initialize custom storages (keeps list of wagons we care about)
 local function init_storages()
   global = global or {}
@@ -99,13 +107,17 @@ local function init_entities()
 end
 
 -- Handle runtime setting changes
-local function on_runtime_setting_changed()
-  -- Nothing to store permanently, get_freeze_rate() will read new values when needed
+local function on_runtime_setting_changed(event)
+  -- Only refresh cached freeze_rate when the relevant setting changed
+  local setting_name = event and event.setting
+  if setting_name == "fridge-freeze-rate" or setting_name == "electric-refrigerated-wagon-freeze-rate" then
+    update_cached_freeze_rate()
+  end
 end
 
--- Main tick handler: uses the freeze rate semantics from Fridge
+-- Main tick handler: uses the cached freeze rate (updated on init/change)
 local function on_tick()
-  local freeze_rates = get_freeze_rate()
+  local freeze_rates = cached_freeze_rate
   if not freeze_rates then return end
   if freeze_rates == 1 then return end
 
@@ -156,12 +168,17 @@ end
 -- Lifecycle handlers
 script.on_load(function()
   init_events()
+  -- ensure cached freeze rate is available when a save is loaded
+  update_cached_freeze_rate()
 end)
 
 script.on_init(function()
   init_storages()
   init_entities()
   init_events()
+
+  -- initialize cached freeze rate once at startup
+  update_cached_freeze_rate()
 
   if has_fridge then
     log("[electric-refrigerated-wagon] Fridge detected: we'll prefer Fridge settings where possible; our wagon will still be tracked for local preservation/fallbacks.")
@@ -174,4 +191,6 @@ script.on_configuration_changed(function()
   init_storages()
   init_entities()
   init_events()
+  -- refresh cached freeze rate after configuration change
+  update_cached_freeze_rate()
 end)
