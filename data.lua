@@ -76,27 +76,64 @@ local item = {
   stack_size = 5
 }
 
--- Replace the previous simple recipe with a balanced recipe that draws on both electric-trains and Fridge ingredients.
--- Ingredients rationale:
--- - cargo-wagon: base chassis
--- - processing-unit: core electronics from electric conversion (electric-cargo-wagon used 10)
--- - refrigerater x2: refrigeration units used by preservation-wagon recipe
--- - advanced-circuit x5: aids refrigeration control and is consistent with preservation components
+-- Replace the previous recipe construction with a deep-copy of electric-trains' recipe when available
+local recipe
+if data.raw and data.raw["recipe"] and data.raw["recipe"]["recipe-electric-cargo-wagon"] then
+  recipe = table.deepcopy(data.raw["recipe"]["recipe-electric-cargo-wagon"]) -- copy properties like category, energy_required, etc.
+  recipe.name = "recipe-electric-refrigerated-cargo-wagon"
 
-local recipe = {
-  type = "recipe",
-  name = "recipe-electric-refrigerated-cargo-wagon",
-  enabled = false,
-  energy_required = 80,
-  ingredients = {
-    { type = "item", name = "cargo-wagon", amount = 1 },
-    { type = "item", name = "processing-unit", amount = 12 },
-    { type = "item", name = "refrigerater", amount = 2 },
-    { type = "item", name = "advanced-circuit", amount = 5 }
-  },
-  results = { { type = "item", name = "electric-refrigerated-cargo-wagon", amount = 1 } },
-  order = "c[rolling-stock]-h[electric-refrigerated-cargo-wagon]"
-}
+  -- Adjust results to produce our refrigerated wagon instead of electric-cargo-wagon
+  if recipe.result then
+    recipe.result = "electric-refrigerated-cargo-wagon"
+  else
+    if recipe.results then
+      local replaced = false
+      for _, r in ipairs(recipe.results) do
+        if r.name == "electric-cargo-wagon" then
+          r.name = "electric-refrigerated-cargo-wagon"
+          replaced = true
+        end
+      end
+      if not replaced then
+        table.insert(recipe.results, { type = "item", name = "electric-refrigerated-cargo-wagon", amount = 1 })
+      end
+    else
+      recipe.results = { { type = "item", name = "electric-refrigerated-cargo-wagon", amount = 1 } }
+    end
+  end
+
+  -- Ensure ingredients field exists and append 2 refrigeraters
+  recipe.ingredients = recipe.ingredients or {}
+  -- Determine ingredient entry style (with type or simple array)
+  local use_type = false
+  for _, ing in ipairs(recipe.ingredients) do
+    if type(ing) == "table" and ing.type then
+      use_type = true
+      break
+    end
+  end
+  if use_type then
+    table.insert(recipe.ingredients, { type = "item", name = "refrigerater", amount = 2 })
+  else
+    table.insert(recipe.ingredients, { "refrigerater", 2 })
+  end
+else
+  -- Fallback balanced recipe when electric-trains recipe is not present
+  recipe = {
+    type = "recipe",
+    name = "recipe-electric-refrigerated-cargo-wagon",
+    enabled = false,
+    energy_required = 80,
+    ingredients = {
+      { type = "item", name = "cargo-wagon", amount = 1 },
+      { type = "item", name = "processing-unit", amount = 12 },
+      { type = "item", name = "refrigerater", amount = 2 },
+      { type = "item", name = "advanced-circuit", amount = 5 }
+    },
+    results = { { type = "item", name = "electric-refrigerated-cargo-wagon", amount = 1 } },
+    order = "c[rolling-stock]-h[electric-refrigerated-cargo-wagon]"
+  }
+end
 
 -- Technology: create a sensible technology requiring both electric-trains and preservation-wagon when available
 local tech_prereqs = { "railway" }
