@@ -1,60 +1,43 @@
--- Electric Refrigerated Wagon
--- Main control script
-
--- This mod integrates Electric Trains with Cold Chain Logistics (Fridge)
--- by providing an electrically powered refrigerated cargo wagon. The control
--- script registers placed wagons and, when the Fridge mod is present,
--- extends spoil timers for items in the wagon while the wagon is powered.
+-- Reworked control.lua
+-- Integrates refrigeration behaviour for electric-refrigerated-cargo-wagon
+-- Copies and adapts wagon handling from Cold Chain Logistics (Fridge)
 
 local ELECTRIC_WAGON_NAME = "electric-refrigerated-cargo-wagon"
-local PRESERVATION_WAGON_NAME = "preservation-wagon" -- from Fridge
+local PRESERVATION_WAGON_NAME = "preservation-wagon" -- Fridge preservation wagon
 
--- Helper: detect if Fridge is active
+-- Local/global storage keys
+local STORAGE_KEY = "ERW_Wagons"
+
+-- Detect if Fridge mod is active
 local has_fridge = script and script.active_mods and script.active_mods["Fridge"]
 
--- Local storage table for wagons if Fridge isn't present
-global = global or {}
-global.ERW = global.ERW or { wagons = {} }
-
-local function register_wagon(entity)
-  if not (entity and entity.valid) then return end
-  if entity.name ~= ELECTRIC_WAGON_NAME then return end
-
-  if has_fridge then
-    -- If Fridge is present, try to piggyback on its storage.Wagons table
-    -- We'll attempt to add the wagon to global storage in the same shape as Fridge
-    -- Fridge expects `storage.Wagons` to hold entity references keyed by unit_number
-    -- But we cannot directly access Fridge's `storage` table. Instead, we register
-    -- the wagon in our own table and also emit a custom event so Fridge (if adapted)
-    -- could pick it up. Many mods use script.raise_event with a custom event id,
-    -- but Fridge does not export one. To remain compatible, we also add the
-    -- wagon to our local table and rely on Fridge scanning surfaces on init.
-    global.ERW.wagons[entity.unit_number] = entity
-  else
-    -- Without Fridge we still track wagons so refrigeration effect can be simulated locally
-    global.ERW.wagons[entity.unit_number] = entity
+-- Helper: parse freeze rate setting from Fridge or local fallback
+local function get_freeze_rate()
+  -- Prefer Fridge's runtime-global setting if available
+  if settings and settings.global and settings.global["fridge-freeze-rate"] then
+    return settings.global["fridge-freeze-rate"].value
   end
+  -- Fallback to our mod's runtime setting if present
+  if settings and settings.global and settings.global["electric-refrigerated-wagon-freeze-rate"] then
+    return settings.global["electric-refrigerated-wagon-freeze-rate"].value
+  end
+  -- Final fallback default
+  return 20
 end
 
-local function unregister_wagon(entity)
-  if not (entity and entity.valid) then return end
-  global.ERW.wagons[entity.unit_number] = nil
-end
-
--- Utility: determine if wagon has available electric energy (attempt multiple checks)
+-- Wagon power detection (kept from earlier implementation)
 local function wagon_is_powered(wagon)
   if not (wagon and wagon.valid) then return false end
 
-  -- If the electric-trains mod exposes remote interface for charge state, prefer it
+  -- Prefer electric-trains remote if present (guarded)
   if remote and remote.interfaces and remote.interfaces["electric-trains"] and remote.interfaces["electric-trains"].is_wagon_charged then
-    -- hypothetical remote call; guard with pcall because implementation may differ
     local ok, result = pcall(function() return remote.call("electric-trains", "is_wagon_charged", wagon) end)
     if ok and result ~= nil then
       return result
     end
   end
 
-  -- Check common electric properties. Some electric wagon prototypes use electric_buffer_size or energy
+  -- Check common energy properties
   if wagon.energy and type(wagon.energy) == "number" then
     return wagon.energy > 0
   end
@@ -62,53 +45,52 @@ local function wagon_is_powered(wagon)
     return wagon.energy > 0
   end
 
-  -- As a last resort, check if the locomotive producing electric force is nearby (not implemented)
   return false
 end
 
--- On tick, if Fridge is present, we prefer to let Fridge handle spoil extension.
--- Otherwise, implement a minimal spoil extension: for each tracked wagon that is powered,
--- extend spoil_tick for spoilable items in the cargo inventory.
-local function on_tick(event)
-  -- every 80 ticks (same cadence as Fridge for warehouses) is reasonable
-  if event.tick % 80 ~= 0 then return end
+-- Initialize custom storages (keeps list of wagons we care about)
+local function init_storages()
+  global = global or {}
+  global[STORAGE_KEY] = global[STORAGE_KEY] or {}
+end
 
-  -- If Fridge is loaded, simply ensure our wagons are registered; Fridge's own on_tick will process them
-  if has_fridge then
-    -- Attempt to keep Fridge aware: if Fridge scans at init, ensure wagons are discoverable by it
-    -- We'll ensure our local registry contains all current wagons in case Fridge wants to query via remote
-    for unit, wagon in pairs(global.ERW.wagons) do
-      if not (wagon and wagon.valid) then
-        global.ERW.wagons[unit] = nil
-      end
-    end
-    return
-  end
+-- Add a wagon to our registry
+local function register_wagon(entity)
+  if not (entity and entity.valid) then return end
+  global[STORAGE_KEY][entity.unit_number] = entity
+end
 
-  -- If Fridge is not present, perform a lightweight spoil extension for items inside powered wagons
-  for unit, wagon in pairs(global.ERW.wagons) do
+-- Remove a wagon from our registry
+local function unregister_wagon(entity)
+  if not entity then return end
+  global[STORAGE_KEY][entity.unit_number] = nil
+end
+
+-- Extend spoil ticks for items in wagons (but only if wagon is powered)
+local function check_wagons(recover_number)
+  if not recover_number or recover_number <= 0 then return end
+  for unit_number, wagon in pairs(global[STORAGE_KEY]) do
     if wagon and wagon.valid then
-      if wagon.get_inventory and wagon.get_inventory(defines.inventory.cargo_wagon) then
-        if wagon_is_powered(wagon) then
-          local inv = wagon.get_inventory(defines.inventory.cargo_wagon)
-          for i = 1, #inv do
-            local stack = inv[i]
-            if stack and stack.valid_for_read and stack.spoil_tick and stack.spoil_tick > 0 then
-              local max_spoil_time = game.tick + stack.prototype.get_spoil_ticks(stack.quality) - 3
-              -- small extension similar to Fridge's unit used (80 ticks)
-              stack.spoil_tick = math.min(stack.spoil_tick + 80, max_spoil_time)
-            end
+      -- Only apply preservation if the wagon supports cargo inventory
+      local inv = wagon.get_inventory and wagon.get_inventory(defines.inventory.cargo_wagon) or nil
+      if inv and wagon_is_powered(wagon) then
+        for i = 1, #inv do
+          local itemStack = inv[i]
+          if itemStack and itemStack.valid_for_read and itemStack.spoil_tick and itemStack.spoil_tick > 0 then
+            local max_spoil_time = game.tick + itemStack.prototype.get_spoil_ticks(itemStack.quality) - 3
+            itemStack.spoil_tick = math.min(itemStack.spoil_tick + recover_number, max_spoil_time)
           end
         end
       end
     else
-      global.ERW.wagons[unit] = nil
+      -- cleanup invalid entries
+      global[STORAGE_KEY][unit_number] = nil
     end
   end
 end
 
--- Event handlers for entity create/remove
-local function on_entity_created(event)
+-- Entity created handler
+local function OnEntityCreated(event)
   local entity = event.created_entity or event.entity
   if not (entity and entity.valid) then return end
   if entity.name == ELECTRIC_WAGON_NAME or entity.name == PRESERVATION_WAGON_NAME then
@@ -116,7 +98,8 @@ local function on_entity_created(event)
   end
 end
 
-local function on_entity_removed(event)
+-- Entity removed handler
+local function OnEntityRemoved(event)
   local entity = event.entity
   if not (entity) then return end
   if entity.name == ELECTRIC_WAGON_NAME or entity.name == PRESERVATION_WAGON_NAME then
@@ -124,43 +107,94 @@ local function on_entity_removed(event)
   end
 end
 
--- Initialization: find existing wagons on surfaces and register them
+-- Scan surfaces and register existing wagons at init
 local function init_entities()
-  global.ERW.wagons = global.ERW.wagons or {}
+  global[STORAGE_KEY] = global[STORAGE_KEY] or {}
   for _, surface in pairs(game.surfaces) do
     local found = surface.find_entities_filtered{ name = { ELECTRIC_WAGON_NAME, PRESERVATION_WAGON_NAME } }
     for _, ent in pairs(found) do
-      if ent and ent.valid and (ent.name == ELECTRIC_WAGON_NAME or ent.name == PRESERVATION_WAGON_NAME) then
-        global.ERW.wagons[ent.unit_number] = ent
+      if ent and ent.valid then
+        global[STORAGE_KEY][ent.unit_number] = ent
       end
     end
   end
 end
 
--- Event registration
-script.on_init(function()
-  init_entities()
-  script.on_event(defines.events.on_built_entity, on_entity_created)
-  script.on_event(defines.events.on_robot_built_entity, on_entity_created)
-  script.on_event(defines.events.on_entity_cloned, on_entity_created)
-  script.on_event(defines.events.script_raised_built, on_entity_created)
-  script.on_event(defines.events.script_raised_revive, on_entity_created)
+-- Handle runtime setting changes
+local function on_runtime_setting_changed()
+  -- Nothing to store permanently, get_freeze_rate() will read new values when needed
+end
 
-  script.on_event(defines.events.on_player_mined_entity, on_entity_removed)
-  script.on_event(defines.events.on_robot_mined_entity, on_entity_removed)
-  script.on_event(defines.events.on_entity_died, on_entity_removed)
-  script.on_event(defines.events.script_raised_destroy, on_entity_removed)
+-- Main tick handler: uses the freeze rate semantics from Fridge
+local function on_tick()
+  local freeze_rates = get_freeze_rate()
+  if not freeze_rates then return end
+  if freeze_rates == 1 then return end
+
+  if freeze_rates < 10 then
+    if game.tick % (10 * freeze_rates) == 0 then
+      -- scale recover number similarly to Fridge: (freeze_rates - 1) * 10
+      check_wagons((freeze_rates - 1) * 10)
+    end
+  else
+    if game.tick % freeze_rates == 0 then
+      check_wagons(freeze_rates - 1)
+    end
+  end
+end
+
+-- Register events
+local function init_events()
+  -- entity filters for creation/removal
+  local entity_filter = {
+    { filter = "name", name = ELECTRIC_WAGON_NAME },
+    { filter = "name", name = PRESERVATION_WAGON_NAME }
+  }
+
+  local creation_events = {
+    defines.events.on_built_entity,
+    defines.events.on_entity_cloned,
+    defines.events.on_robot_built_entity,
+    defines.events.script_raised_built,
+    defines.events.script_raised_revive
+  }
+  for _, ev in pairs(creation_events) do
+    script.on_event(ev, OnEntityCreated, entity_filter)
+  end
+
+  local removal_events = {
+    defines.events.on_player_mined_entity,
+    defines.events.on_robot_mined_entity,
+    defines.events.on_entity_died,
+    defines.events.script_raised_destroy
+  }
+  for _, ev in pairs(removal_events) do
+    script.on_event(ev, OnEntityRemoved, entity_filter)
+  end
 
   script.on_event(defines.events.on_tick, on_tick)
+  script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_setting_changed)
+end
 
-  -- If Fridge is present, inform player via log
+-- Lifecycle handlers
+script.on_load(function()
+  init_events()
+end)
+
+script.on_init(function()
+  init_storages()
+  init_entities()
+  init_events()
+
   if has_fridge then
-    log("[electric-refrigerated-wagon] Fridge detected: refrigeration will integrate with Fridge systems when possible.")
+    log("[electric-refrigerated-wagon] Fridge detected: integrating with Fridge settings where possible")
   else
-    log("[electric-refrigerated-wagon] Fridge not detected: running local spoil-extension fallback logic.")
+    log("[electric-refrigerated-wagon] Fridge not detected: using local freeze-rate fallback setting if configured")
   end
 end)
 
 script.on_configuration_changed(function()
+  init_storages()
   init_entities()
+  init_events()
 end)
