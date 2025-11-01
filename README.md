@@ -1,0 +1,1 @@
+# factorio-electric-refrigerated-wagon
