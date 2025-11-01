@@ -26,24 +26,28 @@ refrigerated_wagon.minable.result = "electric-refrigerated-cargo-wagon"
 refrigerated_wagon.color = {r = 0.6, g = 0.8, b = 1.0, a = 0.8}
 refrigerated_wagon.allow_manual_color = false
 
--- If Fridge is present we add a subtle tint to the icon by providing multiple icons
-local icons = {}
+-- Determine base icon (prefer electric-trains' electric-cargo-wagon item icon)
+local base_icon = "__base__/graphics/icons/cargo-wagon.png"
+local base_icon_size = 64
 if data.raw["item-with-entity-data"] and data.raw["item-with-entity-data"]["electric-cargo-wagon"] then
-  -- Use electric-trains icon as base when available
-  table.insert(icons, { icon = data.raw["item-with-entity-data"]["electric-cargo-wagon"].icon or "__electric-trains__/graphics/icons/electric-cargo-wagon.png", icon_size = data.raw["item-with-entity-data"]["electric-cargo-wagon"].icon_size or 64 })
-else
-  -- Fallback to a generic cargo-wagon icon if necessary
-  table.insert(icons, { icon = "__base__/graphics/icons/cargo-wagon.png", icon_size = 64 })
+  local eitem = data.raw["item-with-entity-data"]["electric-cargo-wagon"]
+  if eitem.icon then
+    base_icon = eitem.icon
+    base_icon_size = eitem.icon_size or base_icon_size
+  elseif eitem.icons and eitem.icons[1] and eitem.icons[1].icon then
+    base_icon = eitem.icons[1].icon
+    base_icon_size = eitem.icons[1].icon_size or base_icon_size
+  end
 end
 
--- If Fridge mod is present, include a small fridge icon overlay (tinted)
-if mods["Fridge"] and (data.raw["item"] and (data.raw["item"]["refrigerater"] or data.raw["item"]["preservation-wagon"])) then
-  table.insert(icons, { icon = "__Fridge__/graphics/icon/refrigerater.png", icon_size = 64, tint = {r=0.6, g=0.8, b=1.0, a=0.9}, scale = 0.5, shift = {8, -8} })
+-- Build single icon entry and tint it if Fridge is present
+local icons = {}
+local base_entry = { icon = base_icon, icon_size = base_icon_size }
+if mods["Fridge"] then
+  base_entry.tint = { r = 0.6, g = 0.8, b = 1.0, a = 0.9 }
 end
-
-if #icons > 0 then
-  refrigerated_wagon.icons = icons
-end
+table.insert(icons, base_entry)
+refrigerated_wagon.icons = icons
 
 -- Ensure inventory size is explicitly set (inherit or default)
 -- If the user has a startup setting, use it (strings like "50 Slots (Default)")
