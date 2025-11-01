@@ -1,9 +1,10 @@
 {
   "name": "electric-refrigerated-wagon",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "title": "Electric Refrigerated Wagon",
   "author": "Panzer1119",
-  "homepage": "https://github.com/Panzer1119/factorio-electric-refrigerated-wagon",
+  "contact": "",
+  "homepage": "",
   "description": "Adds an electrically powered refrigerated cargo wagon that integrates Electric Trains with Cold Chain Logistics (Fridge).",
   "factorio_version": "2.0",
   "dependencies": [
