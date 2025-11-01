@@ -46,7 +46,18 @@ if #icons > 0 then
 end
 
 -- Ensure inventory size is explicitly set (inherit or default)
-refrigerated_wagon.inventory_size = refrigerated_wagon.inventory_size or (data.raw["cargo-wagon"]["cargo-wagon"] and data.raw["cargo-wagon"]["cargo-wagon"].inventory_size) or 50
+-- If the user has a startup setting, use it (strings like "50 Slots (Default)")
+local function parse_slots_from_setting(val)
+  if not val then return nil end
+  -- extract leading number
+  local num = tonumber(val:match("(%d+)%s*Slots"))
+  return num
+end
+
+local setting_val = settings and settings.startup and settings.startup["electric-refrigerated-cargo-wagon-capacity-setting"] and settings.startup["electric-refrigerated-cargo-wagon-capacity-setting"].value or nil
+
+local configured_slots = parse_slots_from_setting(setting_val)
+refrigerated_wagon.inventory_size = configured_slots or refrigerated_wagon.inventory_size or (data.raw["cargo-wagon"]["cargo-wagon"] and data.raw["cargo-wagon"]["cargo-wagon"].inventory_size) or 50
 
 -- Register entity, item, recipe, and technology
 local item = {
