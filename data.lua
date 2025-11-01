@@ -72,24 +72,6 @@ local item = {
   stack_size = 5
 }
 
--- Build recipe ingredients in a guarded way so the recipe is valid whether or not
--- electric-trains or Fridge are present.
-local recipe_ingredients = {}
-if data.raw["item-with-entity-data"] and data.raw["item-with-entity-data"]["electric-cargo-wagon"] then
-  table.insert(recipe_ingredients, {"electric-cargo-wagon", 1})
-else
-  table.insert(recipe_ingredients, {"steel-plate", 20})
-  table.insert(recipe_ingredients, {"iron-gear-wheel", 20})
-end
-
--- If Fridge provides a preservation-wagon item we can require it; otherwise use alternative components
-if data.raw["item"] and data.raw["item"]["preservation-wagon"] then
-  table.insert(recipe_ingredients, {"preservation-wagon", 1})
-else
-  table.insert(recipe_ingredients, {"steel-plate", 10})
-  table.insert(recipe_ingredients, {"advanced-circuit", 5})
-end
-
 -- Replace the previous simple recipe with a balanced recipe that draws on both electric-trains and Fridge ingredients.
 -- Ingredients rationale:
 -- - cargo-wagon: base chassis
