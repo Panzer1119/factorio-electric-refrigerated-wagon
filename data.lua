@@ -8,7 +8,7 @@
 -- (in control.lua) will extend spoil timers for items inside this wagon.
 
 -- Determine base wagon prototype to copy from
-local base_wagon_proto = nil
+local base_wagon_proto
 if mods["electric-trains"] and data.raw["cargo-wagon"] and data.raw["cargo-wagon"]["electric-cargo-wagon"] then
   base_wagon_proto = table.deepcopy(data.raw["cargo-wagon"]["electric-cargo-wagon"]) -- prefer electric wagon if present
 else
@@ -16,15 +16,15 @@ else
   base_wagon_proto = table.deepcopy(data.raw["cargo-wagon"]["cargo-wagon"])
 end
 
--- Create the electric refrigerated cargo wagon entity
+-- Create the electric refrigerated cargo wagon entity (inherit important fields from the electric wagon)
 local refrigerated_wagon = table.deepcopy(base_wagon_proto)
 refrigerated_wagon.name = "electric-refrigerated-cargo-wagon"
 refrigerated_wagon.minable = refrigerated_wagon.minable or {mining_time = 0.5, result = "electric-refrigerated-cargo-wagon"}
 refrigerated_wagon.minable.result = "electric-refrigerated-cargo-wagon"
 
--- Mark entity with a small custom flag so other scripts can quickly detect compatibility
--- Note: this is a custom field and does not affect Factorio's internal prototype fields.
-refrigerated_wagon.__electric_refrigerated_wagon = true
+-- Apply preservation tint and behavior similar to Fridge's preservation_wagon
+refrigerated_wagon.color = {r = 0.6, g = 0.8, b = 1.0, a = 0.8}
+refrigerated_wagon.allow_manual_color = false
 
 -- If Fridge is present we add a subtle tint to the icon by providing multiple icons
 local icons = {}
@@ -79,38 +79,67 @@ else
   table.insert(recipe_ingredients, {"advanced-circuit", 5})
 end
 
+-- Replace the previous simple recipe with a balanced recipe that draws on both electric-trains and Fridge ingredients.
+-- Ingredients rationale:
+-- - cargo-wagon: base chassis
+-- - processing-unit: core electronics from electric conversion (electric-cargo-wagon used 10)
+-- - refrigerater x2: refrigeration units used by preservation-wagon recipe
+-- - advanced-circuit x5: aids refrigeration control and is consistent with preservation components
+
 local recipe = {
   type = "recipe",
   name = "recipe-electric-refrigerated-cargo-wagon",
   enabled = false,
-  energy_required = 10,
-  ingredients = recipe_ingredients,
-  result = "electric-refrigerated-cargo-wagon"
+  energy_required = 80,
+  ingredients = {
+    { type = "item", name = "cargo-wagon", amount = 1 },
+    { type = "item", name = "processing-unit", amount = 12 },
+    { type = "item", name = "refrigerater", amount = 2 },
+    { type = "item", name = "advanced-circuit", amount = 5 }
+  },
+  results = { { type = "item", name = "electric-refrigerated-cargo-wagon", amount = 1 } },
+  order = "c[rolling-stock]-h[electric-refrigerated-cargo-wagon]"
 }
 
--- Technology: require preservation and electric-trains techs when available
-local tech_prereqs = {"railway"}
-if data.raw["technology"] and data.raw["technology"]["preservation-wagon"] then
-  table.insert(tech_prereqs, "preservation-wagon")
-end
--- electric-trains' main technology name is unknown; attempt common candidate names
-if mods["electric-trains"] then
-  -- try a few reasonable tech names that the electric-trains mod might provide
-  if data.raw["technology"]["electric-trains"] then
+-- Technology: create a sensible technology requiring both electric-trains and preservation-wagon when available
+local tech_prereqs = { "railway" }
+-- Support multiple possible technology names from the electric-trains mod (common variants)
+if data.raw["technology"] then
+  if data.raw["technology"]["tech-electric-trains"] then
+    table.insert(tech_prereqs, "tech-electric-trains")
+  elseif data.raw["technology"]["electric-trains"] then
     table.insert(tech_prereqs, "electric-trains")
   elseif data.raw["technology"]["electric-locomotive"] then
     table.insert(tech_prereqs, "electric-locomotive")
   end
 end
 
+if data.raw["technology"] and data.raw["technology"]["preservation-wagon"] then
+  table.insert(tech_prereqs, "preservation-wagon")
+elseif data.raw["technology"] and data.raw["technology"]["preservation-warehouse-tech"] then
+  -- ensure some fridge tech is required if preservation-wagon is named differently
+  table.insert(tech_prereqs, "preservation-warehouse-tech")
+end
+
 local technology = {
   type = "technology",
   name = "electric-refrigerated-cargo-wagon",
+  icons = refrigerated_wagon.icons and { refrigerated_wagon.icons[1] } or nil,
   icon_size = 64,
-  icons = refrigerated_wagon.icons and {refrigerated_wagon.icons[1]} or nil,
   prerequisites = tech_prereqs,
-  unit = { count = 150, ingredients = { {"automation-science-pack", 1}, {"logistic-science-pack", 1}, {"chemical-science-pack", 1} }, time = 30 },
-  effects = { { type = "unlock-recipe", recipe = "recipe-electric-refrigerated-cargo-wagon" } }
+  unit = {
+    count = 250,
+    ingredients = {
+      {"automation-science-pack", 1},
+      {"logistic-science-pack", 1},
+      {"chemical-science-pack", 1},
+      {"production-science-pack", 1}
+    },
+    time = 30
+  },
+  effects = {
+    { type = "unlock-recipe", recipe = "recipe-electric-refrigerated-cargo-wagon" }
+  }
 }
 
 -- Register prototypes
