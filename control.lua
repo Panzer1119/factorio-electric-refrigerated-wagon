@@ -3,7 +3,6 @@
 -- Copies and adapts wagon handling from Cold Chain Logistics (Fridge)
 
 local ELECTRIC_WAGON_NAME = "electric-refrigerated-cargo-wagon"
-local PRESERVATION_WAGON_NAME = "preservation-wagon" -- Fridge preservation wagon
 
 -- Local/global storage keys
 local STORAGE_KEY = "ERW_Wagons"
@@ -93,7 +92,8 @@ end
 local function OnEntityCreated(event)
   local entity = event.created_entity or event.entity
   if not (entity and entity.valid) then return end
-  if entity.name == ELECTRIC_WAGON_NAME or entity.name == PRESERVATION_WAGON_NAME then
+  -- Only register our electric refrigerated wagons; Fridge manages its own preservation-wagon entities
+  if entity.name == ELECTRIC_WAGON_NAME then
     register_wagon(entity)
   end
 end
@@ -102,7 +102,7 @@ end
 local function OnEntityRemoved(event)
   local entity = event.entity
   if not (entity) then return end
-  if entity.name == ELECTRIC_WAGON_NAME or entity.name == PRESERVATION_WAGON_NAME then
+  if entity.name == ELECTRIC_WAGON_NAME then
     unregister_wagon(entity)
   end
 end
@@ -111,7 +111,8 @@ end
 local function init_entities()
   global[STORAGE_KEY] = global[STORAGE_KEY] or {}
   for _, surface in pairs(game.surfaces) do
-    local found = surface.find_entities_filtered{ name = { ELECTRIC_WAGON_NAME, PRESERVATION_WAGON_NAME } }
+    -- Only find our electric refrigerated wagons; don't touch Fridge's preservation-wagon entities
+    local found = surface.find_entities_filtered{ name = ELECTRIC_WAGON_NAME }
     for _, ent in pairs(found) do
       if ent and ent.valid then
         global[STORAGE_KEY][ent.unit_number] = ent
@@ -145,10 +146,9 @@ end
 
 -- Register events
 local function init_events()
-  -- entity filters for creation/removal
+  -- entity filter for creation/removal: only our wagon name
   local entity_filter = {
-    { filter = "name", name = ELECTRIC_WAGON_NAME },
-    { filter = "name", name = PRESERVATION_WAGON_NAME }
+    { filter = "name", name = ELECTRIC_WAGON_NAME }
   }
 
   local creation_events = {
@@ -187,7 +187,7 @@ script.on_init(function()
   init_events()
 
   if has_fridge then
-    log("[electric-refrigerated-wagon] Fridge detected: integrating with Fridge settings where possible")
+    log("[electric-refrigerated-wagon] Fridge detected: we'll prefer Fridge settings where possible; our wagon will still be tracked for local preservation/fallbacks.")
   else
     log("[electric-refrigerated-wagon] Fridge not detected: using local freeze-rate fallback setting if configured")
   end
