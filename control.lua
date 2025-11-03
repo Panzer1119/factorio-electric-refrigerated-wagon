@@ -34,26 +34,26 @@ end
 
 -- Initialize custom storages (keeps list of wagons we care about)
 local function init_storages()
-  global = global or {}
-  global[STORAGE_KEY] = global[STORAGE_KEY] or {}
+  storage = storage or {}
+  storage[STORAGE_KEY] = storage[STORAGE_KEY] or {}
 end
 
 -- Add a wagon to our registry
 local function register_wagon(entity)
   if not (entity and entity.valid) then return end
-  global[STORAGE_KEY][entity.unit_number] = entity
+  storage[STORAGE_KEY][entity.unit_number] = entity
 end
 
 -- Remove a wagon from our registry
 local function unregister_wagon(entity)
   if not entity then return end
-  global[STORAGE_KEY][entity.unit_number] = nil
+  storage[STORAGE_KEY][entity.unit_number] = nil
 end
 
 -- Extend spoil ticks for items in wagons (Fridge preserves items without checking power)
 local function check_wagons(recover_number)
   if not recover_number or recover_number <= 0 then return end
-  for unit_number, wagon in pairs(global[STORAGE_KEY]) do
+  for unit_number, wagon in pairs(storage[STORAGE_KEY]) do
     if wagon and wagon.valid then
       -- Only apply preservation if the wagon supports cargo inventory
       local inv = wagon.get_inventory and wagon.get_inventory(defines.inventory.cargo_wagon) or nil
@@ -68,7 +68,7 @@ local function check_wagons(recover_number)
       end
     else
       -- cleanup invalid entries
-      global[STORAGE_KEY][unit_number] = nil
+      storage[STORAGE_KEY][unit_number] = nil
     end
   end
 end
@@ -94,13 +94,13 @@ end
 
 -- Scan surfaces and register existing wagons at init
 local function init_entities()
-  global[STORAGE_KEY] = global[STORAGE_KEY] or {}
+  storage[STORAGE_KEY] = storage[STORAGE_KEY] or {}
   for _, surface in pairs(game.surfaces) do
     -- Only find our electric refrigerated wagons; don't touch Fridge's preservation-wagon entities
     local found = surface.find_entities_filtered{ name = ELECTRIC_WAGON_NAME }
     for _, ent in pairs(found) do
       if ent and ent.valid then
-        global[STORAGE_KEY][ent.unit_number] = ent
+        storage[STORAGE_KEY][ent.unit_number] = ent
       end
     end
   end
